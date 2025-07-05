@@ -7,7 +7,8 @@ from langchain_chroma import Chroma
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQAWithSourcesChain
-
+from prompt import prompt, example_prompt
+from langchain.chains.qa_with_sources import load_qa_with_sources_chain
 load_dotenv()
 
 CHUNK_SIZE = 1000
@@ -41,7 +42,7 @@ def initialize_components():
 
 
 def process_urls(input_urls):
-    global  vector_store
+    global vector_store
     yield 'initialize component'
     initialize_components()
 
@@ -85,10 +86,28 @@ def process_urls(input_urls):
 
     yield  "done adding data into vector database"
 def generate_answer(query):
-    chain = RetrievalQAWithSourcesChain.from_llm(llm=llm, retriever=vector_store.as_retriever())
-    result = chain.invoke({'question':query}, return_only_output=True)
-    sources = result.get('sources', ' ')
-    return  result['answer'], sources
+    global vector_store
+    if vector_store is None:
+        raise RuntimeError("You must process the URLs first before asking a question.")
+
+    # Get top 4 relevant docs from vector store
+    docs = vector_store.similarity_search(query, k=4)
+
+    # Load chain with custom prompt
+    chain = load_qa_with_sources_chain(
+        llm=llm,
+        prompt=prompt,
+        document_prompt=example_prompt
+    )
+
+    result = chain.invoke({
+        "input_documents": docs,
+        "question": query
+    })
+
+    answer = result.get("answer") or result.get("output_text") or "No answer found."
+    sources = result.get("sources", "")
+    return answer, sources
 
 
 
